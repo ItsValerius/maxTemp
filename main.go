@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -51,38 +52,54 @@ type Standort struct {
 }
 
 func main() {
+	f, err := excelize.OpenFile("weekly incident report.xlsx")
+	if err != nil {
+		fmt.Println(err)
+
+	}
 
 	datestrings, indexes := getDates()
-	fmt.Println(indexes)
 
 	aachen := Standort{lat: 50.77, long: 6.1, name: "Aachen"}
 	leipzig := Standort{lat: 51.34, long: 12.37, name: "Leipzig"}
 
-	var standorte []Standort
-	standorte = append(standorte, aachen, leipzig)
+	counter := 0
 
-	for _, standort := range standorte {
-		for _, datestring := range datestrings {
+	for index, datestring := range datestrings {
+		var url string
+		url = fmt.Sprintf("https://api.brightsky.dev/weather?lat=%.2f&lon=%.2f&date=%s", leipzig.lat, leipzig.long, datestring)
 
-			url := fmt.Sprintf("https://api.brightsky.dev/weather?lat=%.2f&lon=%.2f&date=%s", standort.lat, standort.long, datestring)
-			resp, err := http.Get(url)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			defer resp.Body.Close()
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			var result Response
-			if err := json.Unmarshal(body, &result); err != nil { // Parse []byte to go struct pointer
-				fmt.Println("Can not unmarshal JSON")
-			}
-			maxTemp := findMax(result)
-			fmt.Printf("Max Temperature in %s on the %s was %.2f \n", standort.name, datestring, maxTemp)
+		if indexes[index].Number >= 13 && indexes[index].Number <= 16 {
+			url = fmt.Sprintf("https://api.brightsky.dev/weather?lat=%.2f&lon=%.2f&date=%s", aachen.lat, aachen.long, datestring)
 		}
+
+		resp, err := http.Get(url)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		var result Response
+		if err := json.Unmarshal(body, &result); err != nil { // Parse []byte to go struct pointer
+			fmt.Println("Can not unmarshal JSON")
+		}
+		maxTemp := findMax(result)
+		fmt.Printf("On %s the max temperature was: %.2f°C for number %d \n", datestring, maxTemp, indexes[index].Number)
+		f.SetCellFloat("2022", indexes[index].Axis, maxTemp, 2, 64)
+		counter++
+		if counter >= 5 {
+			<-time.After(time.Second * 5)
+			counter = 0
+		}
+	}
+	f.Save()
+	if err := f.Close(); err != nil {
+		fmt.Println(err)
 	}
 }
 
@@ -98,8 +115,14 @@ func findMax(response Response) float64 {
 	return maxTemp
 }
 
-func getDates() ([]string, []string) {
-	f, err := excelize.OpenFile("Book1.xlsx")
+// define struct with type string and index type int
+type rowValue struct {
+	Axis   string
+	Number int
+}
+
+func getDates() ([]string, []rowValue) {
+	f, err := excelize.OpenFile("weekly incident report.xlsx")
 	if err != nil {
 		fmt.Println(err)
 
@@ -109,8 +132,16 @@ func getDates() ([]string, []string) {
 			fmt.Println(err)
 		}
 	}()
-
-	rows, err := f.GetRows("Tabelle1")
+	sheets := f.GetSheetList()
+	t := time.Now()
+	var currYearSheet string
+	currYearStr := strconv.Itoa(t.Year())
+	for _, sheet := range sheets {
+		if sheet == currYearStr {
+			currYearSheet = sheet
+		}
+	}
+	rows, err := f.GetRows(currYearSheet)
 	if err != nil {
 		fmt.Println(err)
 
@@ -118,6 +149,7 @@ func getDates() ([]string, []string) {
 
 	var tempIndex int
 	var dateIndex int
+	var numberIndex int
 
 	for indexRowOne, rowOne := range rows[0] {
 		if rowOne == "Temperature" {
@@ -126,36 +158,50 @@ func getDates() ([]string, []string) {
 		if rowOne == "Reported Date" {
 			dateIndex = indexRowOne
 		}
+		if rowOne == "Epsilon Number" {
+			numberIndex = indexRowOne
+		}
 	}
 
-	rows = rows[1:]
 	var datestrings []string
-	var indexes []string
+	var rowValues []rowValue
+
 	for index, row := range rows {
 
 		if len(row) > dateIndex && len(row[dateIndex]) > 0 {
 			if len(row) > tempIndex && len(row[tempIndex]) == 0 {
 
 				datestrings = append(datestrings, row[dateIndex])
-				coord, err := excelize.CoordinatesToCellName(dateIndex+1, index+1)
+				axis, err := excelize.CoordinatesToCellName(tempIndex+1, index+1)
 				if err != nil {
 					fmt.Println(err)
 				}
-				indexes = append(indexes, coord)
+				number, err := strconv.Atoi(row[numberIndex])
+				if err != nil {
+					fmt.Println(err)
+				}
+				rowValue := rowValue{Axis: axis, Number: number}
+				rowValues = append(rowValues, rowValue)
 			}
 			if len(row) <= tempIndex {
 
 				datestrings = append(datestrings, row[dateIndex])
-				coord, err := excelize.CoordinatesToCellName(dateIndex+1, index+1)
+				axis, err := excelize.CoordinatesToCellName(tempIndex+1, index+1)
 				if err != nil {
 					fmt.Println(err)
 				}
-				indexes = append(indexes, coord)
+
+				number, err := strconv.Atoi(row[numberIndex])
+				if err != nil {
+					fmt.Println(err)
+				}
+				rowValue := rowValue{Axis: axis, Number: number}
+				rowValues = append(rowValues, rowValue)
 			}
 
 		}
 
 	}
 
-	return datestrings, indexes
+	return datestrings, rowValues
 }
