@@ -90,7 +90,16 @@ func main() {
 		}
 		maxTemp := findMax(result)
 		fmt.Printf("On %s the max temperature was: %.2f°C for number %d \n", datestring, maxTemp, indexes[index].Number)
-		f.SetCellFloat("2022", indexes[index].Axis, maxTemp, 2, 64)
+		sheets := f.GetSheetList()
+		t := time.Now()
+		var currYearSheet string
+		currYearStr := strconv.Itoa(t.Year())
+		for _, sheet := range sheets {
+			if sheet == currYearStr {
+				currYearSheet = sheet
+			}
+		}
+		f.SetCellFloat(currYearSheet, indexes[index].Axis, maxTemp, 2, 64)
 		counter++
 		if counter >= 5 {
 			<-time.After(time.Second * 5)
