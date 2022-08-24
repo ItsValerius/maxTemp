@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -90,14 +91,10 @@ func main() {
 		}
 		maxTemp := findMax(result)
 		fmt.Printf("On %s the max temperature was: %.2f°C for number %d \n", datestring, maxTemp, indexes[index].Number)
-		sheets := f.GetSheetList()
-		t := time.Now()
-		var currYearSheet string
-		currYearStr := strconv.Itoa(t.Year())
-		for _, sheet := range sheets {
-			if sheet == currYearStr {
-				currYearSheet = sheet
-			}
+		currYearSheet, err := findCurrYear(f)
+		if err != nil {
+			fmt.Println(err)
+			return
 		}
 		f.SetCellFloat(currYearSheet, indexes[index].Axis, maxTemp, 2, 64)
 		counter++
@@ -124,7 +121,18 @@ func findMax(response Response) float64 {
 	return maxTemp
 }
 
-// define struct with type string and index type int
+func findCurrYear(f *excelize.File) (string, error) {
+	sheets := f.GetSheetList()
+	t := time.Now()
+	currYearStr := strconv.Itoa(t.Year())
+	for _, sheet := range sheets {
+		if sheet == currYearStr {
+			return sheet, nil
+		}
+	}
+	return "", errors.New("no sheet with year found")
+}
+
 type rowValue struct {
 	Axis   string
 	Number int
@@ -141,14 +149,11 @@ func getDates() ([]string, []rowValue) {
 			fmt.Println(err)
 		}
 	}()
-	sheets := f.GetSheetList()
-	t := time.Now()
-	var currYearSheet string
-	currYearStr := strconv.Itoa(t.Year())
-	for _, sheet := range sheets {
-		if sheet == currYearStr {
-			currYearSheet = sheet
-		}
+
+	currYearSheet, err := findCurrYear(f)
+	if err != nil {
+		fmt.Println(err)
+
 	}
 	rows, err := f.GetRows(currYearSheet)
 	if err != nil {
